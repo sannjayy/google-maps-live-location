@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Location Tracking</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+
+    <link rel="icon" type="image/png" href="https://maps.google.com/mapfiles/ms/icons/green-dot.png" />
+
+    <style>
+        #map {
+            height: 600px;
+        }
+
+        .marker-label {
+            background-color: #f0f0f0;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            /* Set label position to be on top of the marker */
+            position: absolute;
+            top: 0px;
+            /* Adjust as needed */
+            left: -30px;
+            /* Adjust as needed */
+        }
+
+        /* Style for search results dropdown */
+        .search-results {
+            position: absolute;
+            top: 50;
+            left: 0;
+            width: 100%;
+            background-color: #fff;
+            /* border: 1px solid #ccc; */
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            overflow-y: auto;
+            max-height: 200px;
+            /* Limit the height if needed */
+        }
+
+        /* Style for search result items */
+        .search-result {
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .search-result:hover {
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="d-flex justify-content-start align-items-center gap-2 p-3">
+        <div class="search-container">
+            <input type="text" id="searchInput" class='form-control' placeholder="Search for user...">
+            <div id="searchResults" class="search-results"></div>
+        </div>
+        <div><button id="resetZoomButton" class="btn btn-dark">Reset Zoom</button></div>
+    </div>
+
+    <!-- Search results -->
+    <!-- <div id="searchResults"></div> -->
+
+    <div id="map"></div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        var map;
+        var users = [];
+        var initialZoom = 2; // Set your initial zoom level here
+        var markers = [];
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 0, lng: 0 },
+                zoom: initialZoom
+            });
+
+            // Initial update
+            updateMarkers();
+
+            // Refresh every 2 minutes
+            // setInterval(updateMarkers, 120000);
+            setInterval(updateMarkers, 60 * 60 * 60 * 10);
+
+            // Add click event listener to reset zoom button
+            document.getElementById('resetZoomButton').addEventListener('click', function () {
+                map.setZoom(initialZoom); // Reset zoom level to initial zoom
+            });
+        }
+
+        function updateMarkers() {
+            $.ajax({
+                url: 'http://localhost:8000/data.json',
+                method: 'GET',
+                success: function (data) {
+                    console.log(data)
+                    users = data?.data || []; // Populate users array with the received data
+                    renderMarkers(users); // Render markers with updated users data
+                },
+                error: function (xhr, status, error) {
+                    console.error('Error fetching data:', error);
+                }
+            });
+        }
+
+        function renderMarkers(users) {
+            // Clear existing markers
+            markers.forEach(function (marker) {
+                marker.setMap(null);
+            });
+            markers = [];
+
+            // Add new markers
+            users.forEach(function (user) {
+                var latlng = { lat: parseFloat(user.last_coordinate.lat), lng: parseFloat(user.last_coordinate.lon) };
+                var marker = new google.maps.Marker({
+                    position: latlng,
+                    map: map,
+                    title: user.user,
+                    label: {
+                        text: user.user,
+                        className: "marker-label" // Apply custom CSS class to label
+                    },
+                    icon: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png' // URL of the custom icon image
+                });
+
+                // Info Window
+                var contentString = '<div>' +
+                    '<h2>User Details</h2>' +
+                    '<p><strong>User:</strong> ' + user.user + '</p>' +
+                    '<p><strong>Latitude:</strong> ' + user.last_coordinate.lat + '</p>' +
+                    '<p><strong>Longitude:</strong> ' + user.last_coordinate.lon + '</p>' +
+                    '<p><strong>Last Updated:</strong> ' + user.last_updated + '</p>' +
+                    '</div>';
+
+                var infowindow = new google.maps.InfoWindow({
+                    content: contentString
+                });
+
+                marker.addListener('click', function () {
+                    infowindow.open(map, marker);
+                });
+                // Add click event listener to each marker
+                marker.addListener('click', function () {
+                    map.setCenter(latlng); // Set map center to the clicked marker's position
+                    map.setZoom(10); // Adjust zoom level as needed
+                });
+                markers.push(marker);
+            });
+        }
+
+        // Add event listener for search input
+        document.getElementById('searchInput').addEventListener('input', function () {
+            var searchQuery = this.value.toLowerCase();
+            var filteredUsers = users.filter(function (user) {
+                return user.user.toLowerCase().includes(searchQuery);
+            });
+            displaySearchResults(filteredUsers);
+        });
+
+        // Function to display search results
+        function displaySearchResults(filteredUsers) {
+            var searchResultsContainer = document.getElementById('searchResults');
+            searchResultsContainer.innerHTML = ''; // Clear previous results
+
+            filteredUsers.forEach(function (user) {
+                var userElement = document.createElement('div');
+                userElement.textContent = user.user;
+                userElement.classList.add('search-result');
+
+                // Add click event listener to zoom into the location of the selected user
+                userElement.addEventListener('click', function () {
+                    var selectedUser = users.find(function (u) {
+                        return u.user === user.user;
+                    });
+                    if (selectedUser) {
+                        var latlng = { lat: parseFloat(user.last_coordinate.lat), lng: parseFloat(user.last_coordinate.lon) };
+                        map.setCenter(latlng);
+                        map.setZoom(20);
+                    }
+                });
+
+                searchResultsContainer.appendChild(userElement);
+            });
+        }
+    </script>
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=API_KEY_HERE&callback=initMap"></script>
+</body>
+
+</html>
